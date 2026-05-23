@@ -7,10 +7,18 @@
 #include <stdbool.h>
 
 // Child Signal Handler
-void sig_child(int sig_code) {
-    if (sig_code == SIGINT) fprintf(stdout, "Child: SIGINT received but continuing...");
-    else if(sig_code == SIGCONT) fprintf(stdout, "Child: Process resumed");
-    else fprintf(stderr, "Child: Unhandled signal code '%d'", sig_code);
+void sig_int() {
+    fprintf(stdout, "Child: SIGINT received but continuing...\n");
+
+    // Override SIG_DFL behaviour
+    signal(SIGINT, sig_int);
+}
+
+void sig_cont() {
+    fprintf(stdout, "Child: Process resumed\n");
+
+    // Override SIG_DFL behaviour
+    signal(SIGCONT, sig_cont);
 }
 
 pid_t child_pid;
@@ -18,28 +26,29 @@ unsigned int timer = 0;
 bool child_running = true;
 
 // Parent Signal Handler
-void sig_parent(int sig_code) {
-    if (sig_code == SIGALRM) {
-        if (child_running) {
-            timer += 3;
+void sig_alrm() {
+    alarm(0); // Cancel any pending alarms
 
-            fprintf(stdout, "Parent: Stopping child...");
-            kill(child_pid, SIGSTOP);
-            child_running = false;
+    if (child_running) {
+        timer += 3;
 
-            alarm(2);
-        }
-        else {
-            timer += 2;
+        fprintf(stdout, "Parent: Stopping child...\n");
+        kill(child_pid, SIGSTOP);
+        child_running = false;
 
-            fprintf(stdout, "Parent: Continuing child...");
-            kill(child_pid, SIGCONT);
-            child_running = true;
-
-            alarm(3);
-        }
+        alarm(2);
     }
-    else fprintf(stderr, "Parent: Unhandled signal code '%d'", sig_code);
+    else {
+        timer += 2;
+
+        fprintf(stdout, "Parent: Continuing child...\n");
+        kill(child_pid, SIGCONT);
+        child_running = true;
+
+        alarm(3);
+    }
+
+    signal(SIGALRM, sig_alrm);
 }
 
 int main(void) {
@@ -52,23 +61,21 @@ int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
 
     if (child_pid == 0) { // Child Process
-        signal(SIGINT, sig_child);
-        signal(SIGCONT, sig_child);
+        signal(SIGINT, sig_int);
+        signal(SIGCONT, sig_cont);
 
         while(true);
     }
     else { // Parent Process
-        signal(SIGALRM, sig_parent);
+        signal(SIGALRM, sig_alrm);
 
         alarm(3);
-        while(timer < 10);
-        while(!child_running);
-        alarm(0);
+        while(timer <= 10 || !child_running);
 
-        fprintf(stdout, "Parent: Sending SIGINT...");
+        fprintf(stdout, "Parent: Sending SIGINT...\n");
         kill(child_pid, SIGINT);
 
-        fprintf(stdout, "Parent: Sending SIGTERM...");
+        fprintf(stdout, "Parent: Sending SIGTERM...\n");
         kill(child_pid, SIGTERM);
     }
 
