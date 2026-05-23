@@ -9,36 +9,37 @@
 #include <inttypes.h>
 
 /* Custom error codes */
-
 // Upper 16 bits for category, lower 16 bits for specific error
-typedef uint_least32_t error_code_t;
+typedef enum : uint_least32_t {
+    ERROR_NONE = 0x0000,
 
-// No error
-static const error_code_t ERROR_NONE = 0x00000000;
+    // I/O errors
+    ERROR_IO = 0x0100,
+    ERROR_IO_INPUT_OVERFLOW = 0x0101,
 
-// IO errors
-static const error_code_t ERROR_IO = 0x00010000;
-static const error_code_t ERROR_IO_INPUT_OVERFLOW = 0x00010001;
+    // Command-line argument parsing errors
+    ERROR_ARGV = 0x0200,
+    ERROR_ARGV_INVALID = 0x0201,
+    ERROR_ARGV_FILENAME_MISSING = 0x0202,
+    ERROR_ARGV_FILENAME_DUPLICATE = 0x0203,
+    ERROR_ARGV_DIMENSION_MISSING = 0x0204,
+    ERROR_ARGV_DIMENSION_DUPLICATE = 0x0205,
+    ERROR_ARGV_DIMENSION_INVALID = 0x0206,
+    ERROR_ARGV_DIMENSION_OUT_OF_RANGE = 0x0207,
 
-// Argv argument errors
-//static const error_code_t ERROR_ARGV = 0x00020000;
-static const error_code_t ERROR_ARGV_INVALID = 0x00020001;
-static const error_code_t ERROR_ARGV_FILENAME_MISSING = 0x00020002;
-static const error_code_t ERROR_ARGV_FILENAME_DUPLICATE = 0x00020003;
-static const error_code_t ERROR_ARGV_DIMENSION_MISSING = 0x00020004;
-static const error_code_t ERROR_ARGV_DIMENSION_DUPLICATE = 0x00020005;
-static const error_code_t ERROR_ARGV_DIMENSION_INVALID = 0x00020006;
-static const error_code_t ERROR_ARGV_DIMENSION_OUT_OF_RANGE = 0x00020007;
+    // Conversion errors
+    ERROR_CONVERSION = 0x0300,
+    ERROR_CONVERSION_INVALID = 0x0301,
+    ERROR_CONVERSION_OUT_OF_RANGE = 0x0302,
+    ERROR_CONVERSION_INVALID_BASE = 0x0303,
 
-// Conversion errors
-//static const error_code_t ERROR_CONVERSION = 0x00030000;
-static const error_code_t ERROR_CONVERSION_INVALID = 0x00030001;
-static const error_code_t ERROR_CONVERSION_OUT_OF_RANGE = 0x00030002;
-static const error_code_t ERROR_CONVERSION_INVALID_BASE = 0x00030003;
+    // Memory allocation errors
+    ERROR_ALLOCATION = 0x0400,
 
-// Allocation errors
-static const error_code_t ERROR_ALLOCATION = 0x00040000;
-
+    // Math errors
+    ERROR_MATH = 0x0500,
+    ERROR_MUL_OVERFLOW = 0x0501
+} error_code_t;
 /* End of custom error codes */
 
 static int INT_STRING_DIGITS_MAX = 0; // Not defined until main function is called, due to C standard reasons
@@ -70,6 +71,21 @@ error_code_t string_to_int(char* n_str, int* n_out, int base) {
     return ERROR_NONE; // Success
 }
 
+/* 
+Multiplies two `size_t` values and stores the result in `result_out`.
+Returns `error_code_t` indicating success (`ERROR_NONE`) or the type of error that occurred.
+
+Error codes:
+`ERROR_MUL_OVERFLOW`: The multiplication of `a` and `b` would overflow the `size_t` type.
+*/
+error_code_t mul_size_t(size_t a, size_t b, size_t* result_out) {
+    if (a > SIZE_MAX / b) return ERROR_MUL_OVERFLOW; // Multiplication overflow
+
+    *result_out = a * b;
+    return ERROR_NONE; // Success
+}
+/* Stream utilities */
+
 /*
 Reads int from `stream` into `n_out`.
 Returns `error_code_t` indicating success (`ERROR_NONE`) or the type of error that occurred.
@@ -94,8 +110,8 @@ error_code_t stream_read_int(FILE* stream, int* n_out) {
     char* buffer = malloc((INT_STRING_DIGITS_MAX + 1) * sizeof(char));
     if (buffer == NULL) return ERROR_ALLOCATION; // Memory allocation error
 
-    size_t str_i = 0;
-    while (isgraph(c = fgetc(stream)) && str_i < (size_t)INT_STRING_DIGITS_MAX) {
+    int str_i = 0;
+    while (isgraph(c = fgetc(stream)) && str_i < INT_STRING_DIGITS_MAX) {
         *(buffer + str_i) = (char)c; // Store character in buffer
         str_i++;
     }
@@ -116,9 +132,9 @@ error_code_t stream_read_int(FILE* stream, int* n_out) {
     *(buffer + str_i) = '\0'; // Null-terminate the buffer
 
     int n;
-    const error_code_t result = string_to_int(buffer, &n, 0); // Convert buffer to int
+    const error_code_t error_result = string_to_int(buffer, &n, 0); // Convert buffer to int
     free(buffer);
-    if (result != ERROR_NONE) return result; // Propagate conversion error
+    if (error_result != ERROR_NONE) return error_result; // Propagate conversion error
 
     *n_out = n; // Store the converted integer in the output variable
 
@@ -138,6 +154,48 @@ error_code_t stream_skip_until(FILE* stream, int delimiter) {
 
     if (ferror(stream)) return ERROR_IO; // An I/O error occurred while reading from the stream
     else return ERROR_NONE; // End of file reached without finding the specified character, but no I/O error occurred
+}
+
+/* Argv parameter handling functions */
+
+/* 
+Reads a positive integer from standard input and stores it in `dimension_out`.
+Returns `error_code_t` indicating success (`ERROR_NONE`) or the type of error that occurred.
+`dimension_out` is only modified if the input is successfully read and valid.
+Error codes:
+`ERROR_IO`: An I/O error occurred while skipping to end of input.
+*/
+error_code_t user_read_dimension(int* dimension_out) {
+    int dimension = 0;
+    error_code_t error_result = ERROR_NONE;
+
+    while (dimension <= 0) {
+        fprintf(stdout, "Enter the dimension of the matrix (positive integer): ");
+        error_result = stream_read_int(stdin, &dimension);
+
+        // Error handling for reading dimension from user input
+        if (error_result != ERROR_NONE) {
+            if (error_result == ERROR_IO) fprintf(stderr, "error: an I/O error occurred while reading input\n");
+            else if (error_result == ERROR_IO_INPUT_OVERFLOW) fprintf(stderr, "error: potential number is too long\n");
+            else if (error_result == ERROR_ALLOCATION) fprintf(stderr, "error: failed to allocate memory for input string while reading input\n");
+            else if (error_result == ERROR_CONVERSION_INVALID) fprintf(stderr, "error: dimension is not a valid integer\n");
+            else if (error_result == ERROR_CONVERSION_OUT_OF_RANGE) fprintf(stderr, "error: dimension is not within range for int type\n");
+            else fprintf(stderr, "error: unhandled error code: 0x%08" PRIxLEAST32 "\n", error_result);
+        }
+        // Additional check for dimension being a positive integer
+        else if (dimension <= 0) fprintf(stderr, "error: dimension is not within range [1, %d]\n", INT_MAX);
+
+        error_result = stream_skip_until(stdin, '\n');
+        if (error_result != ERROR_NONE) {
+            if (error_result == ERROR_IO) fprintf(stderr, "fatal error: an I/O error occurred while skipping to end of the stream\n");
+            else fprintf(stderr, "fatal error: unhandled error code: 0x%08" PRIxLEAST32 "\n", error_result);
+
+            return error_result; // Not being able to skip input breaks console input a lot so it is better to terminate
+        }
+    }
+
+    *dimension_out = dimension;
+    return ERROR_NONE; // Success
 }
 
 /*
@@ -175,10 +233,10 @@ error_code_t read_args(int argc, char** argv, char** filename_out, int* dimensio
             argc_i++;
             char* dimension_str = *(argv + argc_i);
             if (dimension_str == NULL) return ERROR_ARGV_DIMENSION_MISSING; // Missing dimension after -d argument
-            const error_code_t result = string_to_int(dimension_str, &dimension, 0);
+            const error_code_t error_result = string_to_int(dimension_str, &dimension, 0);
 
-            if (result == ERROR_CONVERSION_INVALID) return ERROR_ARGV_DIMENSION_INVALID;
-            if (result == ERROR_CONVERSION_OUT_OF_RANGE) return ERROR_ARGV_DIMENSION_OUT_OF_RANGE;
+            if (error_result == ERROR_CONVERSION_INVALID) return ERROR_ARGV_DIMENSION_INVALID;
+            if (error_result == ERROR_CONVERSION_OUT_OF_RANGE) return ERROR_ARGV_DIMENSION_OUT_OF_RANGE;
             if (dimension <= 0) return ERROR_ARGV_DIMENSION_OUT_OF_RANGE; // Dimension argument must be a positive integer
         }
         else {
@@ -200,7 +258,7 @@ int special_sum(int* matrix, int rows, int cols) {
     int sum = 0;
 
     for (int r = 0; r < rows; r++) {
-        int* left_ptr =matrix + (r * cols) + r; // Primary diagonal element
+        int* left_ptr = matrix + (r * cols) + r; // Primary diagonal element
         int* right_ptr = matrix + (r * cols) + (cols - 1 - r); // Secondary diagonal element
 
         sum += *left_ptr;
@@ -215,64 +273,48 @@ int main(int argc, char** argv) {
     // Define maximum buffer size for reading input strings based on the number of digits in INT_MIN
     INT_STRING_DIGITS_MAX = snprintf(NULL, 0, "%d", INT_MIN);
 
-    error_code_t result = ERROR_NONE;
+    error_code_t error_result = ERROR_NONE;
 
     // Read command-line arguments
     int dimension = 0;
     char* filename = NULL;
-    result = read_args(argc, argv, &filename, &dimension);
-    if (result != ERROR_NONE) { // Error handling for command-line argument parsing
-        if (result == ERROR_ARGV_INVALID) fprintf(stderr, "fatal error: unrecognized command-line argument\n");
-        else if (result == ERROR_ARGV_FILENAME_MISSING) fprintf(stderr, "fatal error: missing filename after -f argument\n");
-        else if (result == ERROR_ARGV_FILENAME_DUPLICATE) fprintf(stderr, "fatal error: multiple -f arguments provided\n");
-        else if (result == ERROR_ARGV_DIMENSION_MISSING) fprintf(stderr, "fatal error: missing dimension after -d argument\n");
-        else if (result == ERROR_ARGV_DIMENSION_DUPLICATE) fprintf(stderr, "fatal error: multiple -d arguments provided\n");
-        else if (result == ERROR_ARGV_DIMENSION_INVALID) fprintf(stderr, "fatal error: dimension is not a valid integer\n");
-        else if (result == ERROR_ARGV_DIMENSION_OUT_OF_RANGE) fprintf(stderr, "fatal error: dimension is not within range [1, %d]\n", INT_MAX);
-        else fprintf(stderr, "fatal error: unhandled error code: 0x%08" PRIxLEAST32 "\n", result);
+    error_result = read_args(argc, argv, &filename, &dimension);
+    if (error_result != ERROR_NONE) { // Error handling for command-line argument parsing
+        if (error_result == ERROR_ARGV_INVALID) fprintf(stderr, "fatal error: unrecognized command-line argument\n");
+        else if (error_result == ERROR_ARGV_FILENAME_MISSING) fprintf(stderr, "fatal error: missing filename after -f argument\n");
+        else if (error_result == ERROR_ARGV_FILENAME_DUPLICATE) fprintf(stderr, "fatal error: multiple -f arguments provided\n");
+        else if (error_result == ERROR_ARGV_DIMENSION_MISSING) fprintf(stderr, "fatal error: missing dimension after -d argument\n");
+        else if (error_result == ERROR_ARGV_DIMENSION_DUPLICATE) fprintf(stderr, "fatal error: multiple -d arguments provided\n");
+        else if (error_result == ERROR_ARGV_DIMENSION_INVALID) fprintf(stderr, "fatal error: dimension is not a valid integer\n");
+        else if (error_result == ERROR_ARGV_DIMENSION_OUT_OF_RANGE) fprintf(stderr, "fatal error: dimension is not within range [1, %d]\n", INT_MAX);
+        else fprintf(stderr, "fatal error: unhandled error code: 0x%08" PRIxLEAST32 "\n", error_result);
 
         return EXIT_FAILURE;
     }
 
     // If dimension is not provided through command-line arguments, prompt the user for it
-    while (dimension <= 0) {
-        fprintf(stdout, "Enter the dimension of the matrix (positive integer): ");
-        result = stream_read_int(stdin, &dimension);
+    if (dimension == 0) {
+        error_result = user_read_dimension(&dimension);
+        if (error_result != ERROR_NONE) { // Error handling for reading dimension from user input
+            if (error_result == ERROR_IO) fprintf(stderr, "fatal error: an I/O error occurred while skipping to end of input\n");
+            else fprintf(stderr, "fatal error: unhandled error code: 0x%08" PRIxLEAST32 "\n", error_result);
 
-        // Error handling for reading dimension from user input
-        if (result != ERROR_NONE) {
-            if (result == ERROR_IO) fprintf(stderr, "error: an I/O error occurred while reading input\n");
-            else if (result == ERROR_IO_INPUT_OVERFLOW) fprintf(stderr, "error: potential number is too long\n");
-            else if (result == ERROR_ALLOCATION) fprintf(stderr, "error: failed to allocate memory for input string\n");
-            else if (result == ERROR_CONVERSION_INVALID) fprintf(stderr, "error: dimension is not a valid integer\n");
-            else if (result == ERROR_CONVERSION_OUT_OF_RANGE) fprintf(stderr, "error: dimension is not within range [1, %d]\n", INT_MAX);
-            else fprintf(stderr, "error: unhandled error code: 0x%08" PRIxLEAST32 "\n", result);
-        }
-        // Additional check for dimension being a positive integer
-        else if (dimension <= 0) fprintf(stderr, "error: dimension is not within range [1, %d]\n", INT_MAX);
-
-        result = stream_skip_until(stdin, '\n');
-        if (result != ERROR_NONE) {
-            if (result == ERROR_IO) fprintf(stderr, "fatal error: an I/O error occurred while skipping to end of the stream\n");
-            else fprintf(stderr, "fatal error: unhandled error code: 0x%08" PRIxLEAST32 "\n", result);
-
-            return EXIT_FAILURE; // Not being able to skip input breaks console input a lot so it is better to terminate
+            return EXIT_FAILURE;
         }
     }
 
-    // Additional checks for dimension being too large for matrix to be stored in memory
-    if ((size_t)dimension > SIZE_MAX / (size_t)dimension) {
+    // Multiplication overflow checks for allocation
+    size_t element_count = 0;
+    if (mul_size_t((size_t)dimension, (size_t)dimension, &element_count) != ERROR_NONE) {
         fprintf(stderr, "error: dimension is too large for matrix to be stored in memory\n");
-
         return EXIT_FAILURE;
     }
-    if (sizeof(int) > SIZE_MAX / (size_t)(dimension * dimension)) {
+    else if (mul_size_t(element_count, sizeof(int), &element_count) != ERROR_NONE) {
         fprintf(stderr, "error: dimension is too large for matrix to be stored in memory\n");
         return EXIT_FAILURE;
     }
 
     // Allocating matrix
-    const size_t element_count = (size_t)dimension * (size_t)dimension;
     const size_t matrix_size = element_count * sizeof(int);
     int* matrix = (int*)malloc(matrix_size);
     if (matrix == NULL) {
@@ -291,16 +333,16 @@ int main(int argc, char** argv) {
 
         // Reading elements from file
         for (size_t i = 0; i < element_count; i++) {
-            result = stream_read_int(file, (matrix + i));
-            if (result != ERROR_NONE) {
+            error_result = stream_read_int(file, (matrix + i));
+            if (error_result != ERROR_NONE) {
                 const size_t element = i + 1, row = (i / dimension) + 1, column = (i % dimension) + 1;
 
-                if (result == ERROR_IO) fprintf(stderr, "fatal error: an I/O error occurred while reading from the file (element %zu, row %zu, column %zu)\n", element, row, column);
-                else if (result == ERROR_IO_INPUT_OVERFLOW) fprintf(stderr, "fatal error: potential number in file is too long (element %zu, row %zu, column %zu)\n", element, row, column);
-                else if (result == ERROR_ALLOCATION) fprintf(stderr, "fatal error: failed to allocate memory for input string while reading from file (element %zu, row %zu, column %zu)\n", element, row, column);
-                else if (result == ERROR_CONVERSION_INVALID) fprintf(stderr, "fatal error: matrix element in file is not a valid integer (element %zu, row %zu, column %zu)\n", element, row, column);
-                else if (result == ERROR_CONVERSION_OUT_OF_RANGE) fprintf(stderr, "fatal error: matrix element in file is out of range for int type (element %zu, row %zu, column %zu)\n", element, row, column);
-                else fprintf(stderr, "fatal error: unhandled error code: 0x%08" PRIxLEAST32 " (element %zu, row %zu, column %zu)\n", result, element, row, column);
+                if (error_result == ERROR_IO) fprintf(stderr, "fatal error: an I/O error occurred while reading from the file (element %zu, row %zu, column %zu)\n", element, row, column);
+                else if (error_result == ERROR_IO_INPUT_OVERFLOW) fprintf(stderr, "fatal error: potential number in file is too long (element %zu, row %zu, column %zu)\n", element, row, column);
+                else if (error_result == ERROR_ALLOCATION) fprintf(stderr, "fatal error: failed to allocate memory for input string while reading from file (element %zu, row %zu, column %zu)\n", element, row, column);
+                else if (error_result == ERROR_CONVERSION_INVALID) fprintf(stderr, "fatal error: matrix element in file is not a valid integer (element %zu, row %zu, column %zu)\n", element, row, column);
+                else if (error_result == ERROR_CONVERSION_OUT_OF_RANGE) fprintf(stderr, "fatal error: matrix element in file is out of range for int type (element %zu, row %zu, column %zu)\n", element, row, column);
+                else fprintf(stderr, "fatal error: unhandled error code: 0x%08" PRIxLEAST32 " (element %zu, row %zu, column %zu)\n", error_result, element, row, column);
 
                 free(matrix);
                 fclose(file);
@@ -317,21 +359,21 @@ int main(int argc, char** argv) {
             const size_t element = i + 1, row = (i / dimension) + 1, column = (i % dimension) + 1;
             fprintf(stdout, "Enter element %zu (row %zu, column %zu): ", element, row, column);
 
-            result = stream_read_int(stdin, (matrix + i));
-            if (result != ERROR_NONE) {
-                if (result == ERROR_IO) fprintf(stderr, "error: an I/O error occurred while reading input\n");
-                else if (result == ERROR_IO_INPUT_OVERFLOW) fprintf(stderr, "error: input size is too large\n");
-                else if (result == ERROR_ALLOCATION) fprintf(stderr, "error: failed to allocate memory for input string while reading input\n");
-                else if (result == ERROR_CONVERSION_INVALID) fprintf(stderr, "error: input is not a valid integer\n");
-                else if (result == ERROR_CONVERSION_OUT_OF_RANGE) fprintf(stderr, "error: input is out of range for int type\n");
-                else fprintf(stderr, "error: unhandled error code: 0x%08" PRIxLEAST32 "\n", result);
+            error_result = stream_read_int(stdin, (matrix + i));
+            if (error_result != ERROR_NONE) {
+                if (error_result == ERROR_IO) fprintf(stderr, "error: an I/O error occurred while reading input\n");
+                else if (error_result == ERROR_IO_INPUT_OVERFLOW) fprintf(stderr, "error: input size is too large\n");
+                else if (error_result == ERROR_ALLOCATION) fprintf(stderr, "error: failed to allocate memory for input string while reading input\n");
+                else if (error_result == ERROR_CONVERSION_INVALID) fprintf(stderr, "error: input is not a valid integer\n");
+                else if (error_result == ERROR_CONVERSION_OUT_OF_RANGE) fprintf(stderr, "error: input is out of range for int type\n");
+                else fprintf(stderr, "error: unhandled error code: 0x%08" PRIxLEAST32 "\n", error_result);
             }
             else i++;
 
-            result = stream_skip_until(stdin, '\n');
-            if (result != ERROR_NONE) {
-                if (result == ERROR_IO) fprintf(stderr, "fatal error: an I/O error occurred while skipping to end of the stream\n");
-                else fprintf(stderr, "fatal error: unhandled error code: 0x%08" PRIxLEAST32 "\n", result);
+            error_result = stream_skip_until(stdin, '\n');
+            if (error_result != ERROR_NONE) {
+                if (error_result == ERROR_IO) fprintf(stderr, "fatal error: an I/O error occurred while skipping to end of the stream\n");
+                else fprintf(stderr, "fatal error: unhandled error code: 0x%08" PRIxLEAST32 "\n", error_result);
 
                 return EXIT_FAILURE; // Not being able to skip input breaks console input a lot so it is better to terminate
             }
