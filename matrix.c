@@ -250,11 +250,6 @@ int main(int argc, char** argv) {
         }
         // Additional check for dimension being a positive integer
         else if (dimension <= 0) fprintf(stderr, "error: dimension is not within range [1, %d]\n", INT_MAX);
-        // Additional checks for dimension being too large for matrix to be stored in memory
-        else if ((size_t)dimension > SIZE_MAX / (size_t)dimension)
-            fprintf(stderr, "error: dimension is too large for matrix to be stored in memory\n");
-        else if (sizeof(int) > SIZE_MAX / (size_t)(dimension * dimension))
-            fprintf(stderr, "error: dimension is too large for matrix to be stored in memory\n");
 
         result = stream_skip_until(stdin, '\n');
         if (result != ERROR_NONE) {
@@ -263,6 +258,17 @@ int main(int argc, char** argv) {
 
             return EXIT_FAILURE; // Not being able to skip input breaks console input a lot so it is better to terminate
         }
+    }
+
+    // Additional checks for dimension being too large for matrix to be stored in memory
+    if ((size_t)dimension > SIZE_MAX / (size_t)dimension) {
+        fprintf(stderr, "error: dimension is too large for matrix to be stored in memory\n");
+
+        return EXIT_FAILURE;
+    }
+    if (sizeof(int) > SIZE_MAX / (size_t)(dimension * dimension)) {
+        fprintf(stderr, "error: dimension is too large for matrix to be stored in memory\n");
+        return EXIT_FAILURE;
     }
 
     // Allocating matrix
