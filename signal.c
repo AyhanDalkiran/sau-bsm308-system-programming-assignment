@@ -41,21 +41,25 @@ bool child_running = true;
 // Parent Signal Handler
 void sig_alrm_parent(int signum) {
     (void)signum; // Unused parameter, compiler does not shut up about it
-    if (child_running) {
-        parent_timer += 3;
-
+    
+    if (parent_timer >= 10) { // 10 seconds passed, terminate child
+        kill(child_pid, SIGTERM);
+        fprintf(stdout, "Parent: Child terminated.\n");
+        parent_timer += 1;
+    }
+    else if (child_running) { // Stop child
         fprintf(stdout, "Parent: Stopping child...\n");
         kill(child_pid, SIGSTOP);
         child_running = false;
+        parent_timer += 3;
 
         alarm(2);
     }
-    else {
-        parent_timer += 2;
-
+    else { // Continuing child
         fprintf(stdout, "Parent: Continuing child...\n");
         kill(child_pid, SIGCONT);
         child_running = true;
+        parent_timer += 2;
 
         alarm(3);
     }
@@ -68,9 +72,6 @@ int main(void) {
         fprintf(stderr, "error: Could not fork process\n");
         return EXIT_FAILURE;
     }
-
-    // Don't buffer output
-    setvbuf(stdout, NULL, _IONBF, 0);
 
     if (child_pid == 0) { // Child Process
         signal(SIGINT, sig_int);
@@ -85,12 +86,14 @@ int main(void) {
 
         alarm(3);
         while(parent_timer < 10 || !child_running);
+        alarm(0);
 
         fprintf(stdout, "Parent: Sending SIGINT...\n");
         kill(child_pid, SIGINT);
 
-        kill(child_pid, SIGTERM);
-        fprintf(stdout, "Parent: Child terminated.\n");
+        alarm(1);
+        while (parent_timer < 11);
+        alarm(0);
     }
 
     return EXIT_SUCCESS;
