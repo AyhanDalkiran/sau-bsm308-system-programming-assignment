@@ -9,8 +9,8 @@
 #include <inttypes.h>
 
 /* Custom error codes */
-// Upper 16 bits for category, lower 16 bits for specific error
-typedef enum : uint_least32_t {
+// Upper 8 bits for category, lower 8 bits for specific error
+typedef enum {
     ERROR_NONE = 0x0000,
 
     // I/O errors
