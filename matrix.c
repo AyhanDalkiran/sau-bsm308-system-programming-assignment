@@ -305,20 +305,20 @@ int main(int argc, char** argv) {
 
     // Multiplication overflow checks for allocation
     size_t element_count = 0;
+    size_t matrix_size = 0;
     if (mul_size_t((size_t)dimension, (size_t)dimension, &element_count) != ERROR_NONE) {
-        fprintf(stderr, "error: dimension is too large for matrix to be stored in memory\n");
+        fprintf(stderr, " fatal error: dimension is too large for matrix to be stored in memory\n");
         return EXIT_FAILURE;
     }
-    else if (mul_size_t(element_count, sizeof(int), &element_count) != ERROR_NONE) {
-        fprintf(stderr, "error: dimension is too large for matrix to be stored in memory\n");
+    else if (mul_size_t(element_count, sizeof(int), &matrix_size) != ERROR_NONE) {
+        fprintf(stderr, "fatal error: dimension is too large for matrix to be stored in memory\n");
         return EXIT_FAILURE;
     }
 
     // Allocating matrix
-    const size_t matrix_size = element_count * sizeof(int);
     int* matrix = (int*)malloc(matrix_size);
     if (matrix == NULL) {
-        fprintf(stderr, "error: failed to allocate memory for matrix\n");
+        fprintf(stderr, "fatal error: failed to allocate memory for matrix\n");
         return EXIT_FAILURE;
     }
 
